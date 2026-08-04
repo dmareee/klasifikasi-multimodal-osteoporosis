@@ -1,0 +1,34 @@
+{
+  "class_names": [
+    "normal",
+    "osteopenia",
+    "osteoporosis"
+  ],
+  "label_map": {
+    "normal": 0,
+    "osteopenia": 1,
+    "osteoporosis": 2
+  },
+  "n_classes": 3,
+  "img_size": [
+    224,
+    224
+  ],
+  "image_mode": "npy",
+  "num_features": [
+    "age",
+    "height",
+    "weight",
+    "bmi"
+  ],
+  "cat_features": [
+    "gender"
+  ],
+  "variants": [
+    "A_Clinical_Only",
+    "B_Image_Only",
+    "C_Multimodal_NoGating",
+    "D_Multimodal_Gating"
+  ],
+  "dataset_size": 793
+}
