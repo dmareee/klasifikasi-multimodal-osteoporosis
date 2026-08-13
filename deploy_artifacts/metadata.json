@@ -15,6 +15,10 @@
     224
   ],
   "image_mode": "npy",
+  "backbone": "EfficientNetB0",
+  "backbone_input_scale": 255.0,
+  "backbone_pretrain": "imagenet (CheXNet-style 2-stage fine-tuning)",
+  "fine_tune_layers": 30,
   "num_features": [
     "age",
     "height",
@@ -30,5 +34,48 @@
     "C_Multimodal_NoGating",
     "D_Multimodal_Gating"
   ],
-  "dataset_size": 793
+  "variant_config": {
+    "A_Clinical_Only": {
+      "img": false,
+      "tab": true,
+      "gate": false
+    },
+    "B_Image_Only": {
+      "img": true,
+      "tab": false,
+      "gate": false
+    },
+    "C_Multimodal_NoGating": {
+      "img": true,
+      "tab": true,
+      "gate": false
+    },
+    "D_Multimodal_Gating": {
+      "img": true,
+      "tab": true,
+      "gate": true
+    }
+  },
+  "best_variant": "D_Multimodal_Gating",
+  "best_variant_checkpoint": "best_D_Multimodal_Gating.keras",
+  "dataset_size": 793,
+  "gaussian_kernel_size": [
+    5,
+    5
+  ],
+  "gaussian_sigma": 1.0,
+  "roi_config": {
+    "ap": {
+      "top": 0.12,
+      "bottom": 1,
+      "left": 0.22,
+      "right": 0.78
+    },
+    "lat": {
+      "top": 0.12,
+      "bottom": 1,
+      "left": 0.12,
+      "right": 0.85
+    }
+  }
 }
