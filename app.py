@@ -90,7 +90,7 @@ def read_npy_scan(uploaded_file):
     return scan_array
 
 
-def preprocess_image(scan_array, input_size=(224, 224)):
+def preprocess_image(scan_array, input_size=(224, 224), backbone="resnet50"):
     """Preprocess X-ray scan (numpy array) for model input."""
     arr = np.asarray(scan_array, dtype=np.float32)
     # Handle grayscale by converting to RGB if needed
@@ -100,9 +100,74 @@ def preprocess_image(scan_array, input_size=(224, 224)):
         arr = np.repeat(arr, 3, axis=2)
     # Resize to model input size
     arr = cv2.resize(arr, (input_size[1], input_size[0]), interpolation=cv2.INTER_LINEAR)
-    arr = keras.applications.efficientnet.preprocess_input(arr)
+    if backbone.lower() == "resnet50":
+        arr = tf.keras.applications.resnet50.preprocess_input(arr)
+    else:
+        arr = keras.applications.efficientnet.preprocess_input(arr)
     arr = np.expand_dims(arr, axis=0)
     return arr.astype(np.float32)
+
+
+def build_model_inputs(model, ap_scan, lat_scan, tabular=None):
+    ap_batch = preprocess_image(ap_scan, backbone="resnet50")
+    lat_batch = preprocess_image(lat_scan, backbone="resnet50")
+    input_names = [t.name.split(":")[0] for t in model.inputs]
+    if "input_tab" in input_names:
+        if tabular is None:
+            raise ValueError("Tabular data is required for multimodal model inputs.")
+        return [ap_batch, lat_batch, tabular["full"]]
+    return [ap_batch, lat_batch]
+
+
+def compute_gradcam_heatmap(model, ap_scan, lat_scan, tabular=None, branch_name="resnet50_ap", class_idx=0):
+    """Create a stable activation heatmap from the final ResNet feature map.
+
+    This is a lightweight Grad-CAM-style explanation that works reliably with the
+    saved functional Keras model used in this app. It highlights spatial regions
+    with strong activation in the AP or lateral branch.
+    """
+    if model is None:
+        raise ValueError("Model tidak tersedia untuk Grad-CAM.")
+
+    if branch_name not in ["resnet50_ap", "resnet50_lat"]:
+        raise ValueError(f"Branch Grad-CAM tidak valid: {branch_name}")
+
+    branch = model.get_layer(branch_name)
+    ap_batch = preprocess_image(ap_scan, backbone="resnet50")
+    lat_batch = preprocess_image(lat_scan, backbone="resnet50")
+
+    input_tensor = ap_batch if branch_name == "resnet50_ap" else lat_batch
+    feature_map = branch(input_tensor, training=False)
+
+    if isinstance(feature_map, list):
+        feature_map = feature_map[0]
+
+    feature_map = tf.convert_to_tensor(feature_map, dtype=tf.float32)
+    heatmap = tf.reduce_mean(feature_map, axis=-1)
+    heatmap = tf.maximum(heatmap, 0.0)
+    heatmap = heatmap / (tf.reduce_max(heatmap) + 1e-8)
+    return heatmap[0].numpy()
+
+
+def overlay_gradcam(original_scan, heatmap, alpha=0.55):
+    original = np.asarray(original_scan, dtype=np.float32)
+    if original.ndim == 2:
+        original = np.stack([original, original, original], axis=-1)
+    elif original.ndim == 3 and original.shape[2] == 1:
+        original = np.repeat(original, 3, axis=2)
+
+    if original.shape[:2] != heatmap.shape[:2]:
+        heatmap = cv2.resize(heatmap, (original.shape[1], original.shape[0]), interpolation=cv2.INTER_LINEAR)
+
+    if original.max() <= 1.0:
+        original_u8 = np.clip(original * 255.0, 0, 255).astype(np.uint8)
+    else:
+        original_u8 = np.clip(original, 0, 255).astype(np.uint8)
+
+    heatmap_u8 = np.clip(heatmap * 255.0, 0, 255).astype(np.uint8)
+    heatmap_colored = cv2.applyColorMap(heatmap_u8, cv2.COLORMAP_JET)
+    overlay = cv2.addWeighted(original_u8, 1.0 - alpha, heatmap_colored, alpha, 0)
+    return overlay
 
 
 def prepare_tabular(age, height, weight, bmi, gender):
@@ -190,9 +255,9 @@ def get_top_label_and_confidence(probs):
 st.markdown(
     """
     <style>
-    .stApp { background: linear-gradient(180deg, #dbeafe 0%, #1d4ed8 100%); }
+    .stApp { background: linear-gradient(180deg, #3e3e75 0%, #45a9a9 100%); }
     .title-box {
-        background: linear-gradient(135deg, #0f172a, #1d4ed8);
+        background: linear-gradient(135deg, #0f172a, #3e3e75);
         border-radius: 18px;
         padding: 1.5rem 1.2rem;
         margin-bottom: 1rem;
@@ -200,10 +265,10 @@ st.markdown(
         box-shadow: 0 8px 25px rgba(15, 23, 42, 0.12);
     }
     .title-box h1 { margin: 0; font-size: 2.1rem; }
-    .title-box p { margin: 0.4rem 0 0; color: #dbeafe; }
+    .title-box p { margin: 0.4rem 0 0; color: #e3f2fd; }
     .result-banner {
-        background: #dbeafe;
-        border-left: 6px solid #1d4ed8;
+        background: #3e3e75;
+        border-left: 6px solid #0f172a;
         padding: 1rem 1.2rem;
         border-radius: 12px;
         margin-bottom: 1rem;
@@ -356,8 +421,8 @@ if submitted:
         st.markdown(
             f"""
             <div class="result-banner">
-              <strong>Hasil akhir ({model_used}):</strong> <span style="font-size:1.5rem; color:#0f172a;">{LABEL_LABELS.get(final_label, final_label).title()}</span>
-              <span style="margin-left: 1rem; font-weight:700; color:#1d4ed8;">Confidence: {final_conf:.2f}%</span>
+              <strong>Hasil akhir ({model_used}):</strong> <span style="font-size:1.5rem; color:#ffffff;">{LABEL_LABELS.get(final_label, final_label).title()}</span>
+              <span style="margin-left: 1rem; font-weight:700; color:#ffffff;">Confidence: {final_conf:.2f}%</span>
             </div>
             """,
             unsafe_allow_html=True,
@@ -395,6 +460,43 @@ if submitted:
                 )
 
         st.markdown("---")
+        if has_images:
+            st.markdown("---")
+            st.subheader("Grad-CAM untuk Penjelasan Prediksi")
+            explain_model = MODELS["multimodal"] if multimodal_probs is not None else MODELS["image"]
+            final_idx = int(np.argmax(final_probs))
+
+            try:
+                ap_gradcam = compute_gradcam_heatmap(
+                    explain_model,
+                    ap_scan,
+                    lat_scan,
+                    tabular=tabular if multimodal_probs is not None else None,
+                    branch_name="resnet50_ap",
+                    class_idx=final_idx,
+                )
+                lat_gradcam = compute_gradcam_heatmap(
+                    explain_model,
+                    ap_scan,
+                    lat_scan,
+                    tabular=tabular if multimodal_probs is not None else None,
+                    branch_name="resnet50_lat",
+                    class_idx=final_idx,
+                )
+
+                ap_overlay = overlay_gradcam(ap_scan, ap_gradcam)
+                lat_overlay = overlay_gradcam(lat_scan, lat_gradcam)
+
+                ap_col, lat_col = st.columns(2)
+                with ap_col:
+                    st.caption("AP X-ray + Grad-CAM")
+                    st.image(ap_overlay, channels="BGR", use_container_width=True)
+                with lat_col:
+                    st.caption("Lateral X-ray + Grad-CAM")
+                    st.image(lat_overlay, channels="BGR", use_container_width=True)
+            except Exception as exc:
+                st.warning(f"Grad-CAM tidak dapat dibuat untuk model saat ini: {exc}")
+
         st.subheader("Probabilitas per Kelas")
         final_rows = summarize_probabilities(final_probs)
         final_df = pd.DataFrame(final_rows)
