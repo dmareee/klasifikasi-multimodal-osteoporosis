@@ -582,7 +582,7 @@ st.markdown(
 st.markdown(
     """
     <div class="title-box">
-      <h1>🦴 Deteksi Osteoporosis Multimodal</h1>
+      <h1>🦴 Klasifikasi Osteoporosis Multimodal</h1>
       <p>Model gabungan citra X-ray (EfficientNetB0) dan data klinis pasien untuk memprediksi status osteoporosis.</p>
     </div>
     """,
@@ -716,31 +716,6 @@ if submitted:
         else:
             st.caption("Tidak ada model pembanding yang bisa diprediksi pada sesi ini.")
 
-        st.markdown("---")
-        st.subheader("Grad-CAM untuk Penjelasan Prediksi")
-        final_idx = int(np.argmax(final_probs))
-
-        try:
-            ap_heatmap = compute_gradcam_heatmap(
-                GRADCAM_MODEL, ap_scan, lat_scan, tabular, view="ap", class_idx=final_idx,
-            )
-            lat_heatmap = compute_gradcam_heatmap(
-                GRADCAM_MODEL, ap_scan, lat_scan, tabular, view="lat", class_idx=final_idx,
-            )
-
-            ap_overlay = overlay_gradcam(ap_scan, ap_heatmap)
-            lat_overlay = overlay_gradcam(lat_scan, lat_heatmap)
-
-            ap_col, lat_col = st.columns(2)
-            with ap_col:
-                st.caption("AP X-ray + Grad-CAM")
-                st.image(ap_overlay, channels="BGR", use_container_width=True)
-            with lat_col:
-                st.caption("Lateral X-ray + Grad-CAM")
-                st.image(lat_overlay, channels="BGR", use_container_width=True)
-        except Exception as exc:
-            st.warning(f"Grad-CAM tidak dapat dibuat: {exc}")
-
         st.subheader("Probabilitas per Kelas")
         final_rows = summarize_probabilities(final_probs)
         final_df = pd.DataFrame(final_rows)
@@ -771,6 +746,31 @@ if submitted:
             st.info("Model cukup yakin, namun tetap disarankan pemeriksaan klinis lanjutan.")
         else:
             st.warning("Model belum terlalu yakin. Pertimbangkan evaluasi ahli atau pemeriksaan tambahan.")
+
+        st.markdown("---")
+        st.subheader("Grad-CAM untuk Penjelasan Prediksi")
+        final_idx = int(np.argmax(final_probs))
+
+        try:
+            ap_heatmap = compute_gradcam_heatmap(
+                GRADCAM_MODEL, ap_scan, lat_scan, tabular, view="ap", class_idx=final_idx,
+            )
+            lat_heatmap = compute_gradcam_heatmap(
+                GRADCAM_MODEL, ap_scan, lat_scan, tabular, view="lat", class_idx=final_idx,
+            )
+
+            ap_overlay = overlay_gradcam(ap_scan, ap_heatmap)
+            lat_overlay = overlay_gradcam(lat_scan, lat_heatmap)
+
+            ap_col, lat_col = st.columns(2)
+            with ap_col:
+                st.caption("AP X-ray + Grad-CAM")
+                st.image(ap_overlay, channels="BGR", use_container_width=True)
+            with lat_col:
+                st.caption("Lateral X-ray + Grad-CAM")
+                st.image(lat_overlay, channels="BGR", use_container_width=True)
+        except Exception as exc:
+            st.warning(f"Grad-CAM tidak dapat dibuat: {exc}")
 
     except Exception as e:
         st.error(f"❌ Kesalahan dalam prediksi model:\n\n{str(e)}")
