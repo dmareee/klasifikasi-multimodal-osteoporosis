@@ -42,40 +42,7 @@ Arsitektur **Cross-Modal Gated Interaction** dirancang untuk mengatasi kelemahan
 ## Arsitektur Model
 
 ### Varian D — Cross-Modal Gated Interaction (Model Terbaik)
-
-```
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│                        LUMOS — Arsitektur Multimodal (Varian D)                 │
-├──────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  [AP X-Ray 224×224×3] → Rescale(255) → EfficientNetB0 → GAP → Dense(256)  ─┐   │
-│                                                                              │   │
-│                                                   Concat(512) → Dense(512 → │   │
-│                                                   256 → 128 → 64) = h_img   │   │
-│  [LAT X-Ray 224×224×3] → Rescale(255) → EfficientNetB0 → GAP → Dense(256) ─┘   │
-│                                                                    │ (64-d)      │
-│                                                                    │             │
-│  [Data Klinis 5 fitur] → StandardScaler/OHE → Dense(64) →         │             │
-│                           Dense(32) = h_tab ──────────────────────┐│             │
-│                                                      (32-d)      ││             │
-│                                                                   ▼▼             │
-│                                        joint = [h_img ‖ h_tab] ∈ R⁹⁶            │
-│                                              │              │                    │
-│                                              ▼              ▼                    │
-│                                  gate_img = σ(W·joint)  gate_tab = σ(W·joint)    │
-│                                      ∈ [0,1]⁶⁴             ∈ [0,1]³²            │
-│                                              │              │                    │
-│                                              ▼              ▼                    │
-│                                   h_img ⊙ gate_img    h_tab ⊙ gate_tab          │
-│                                              │              │                    │
-│                                              └──────┬───────┘                    │
-│                                                     ▼                            │
-│                                      fusion ∈ R⁹⁶ → Dense(128) → Dense(64)      │
-│                                                     → Dense(3, Softmax)          │
-│                                                     ▼                            │
-│                                      [Normal │ Osteopenia │ Osteoporosis]        │
-└──────────────────────────────────────────────────────────────────────────────────┘
-```
+![Diagram Model Fusi](send/fusi_klasifikasi_akhir.png)
 
 ### Studi Ablasi — 4 Varian Model
 
