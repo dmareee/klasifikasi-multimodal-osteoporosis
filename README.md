@@ -2,10 +2,7 @@
 
 > **Klasifikasi Multimodal Osteoporosis Berdasarkan Citra X-Ray Dual-View (AP + Lateral) dan Data Klinis Tabular Menggunakan Arsitektur Cross-Modal Gated Interaction**
 
-[![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/downloads/)
-[![TensorFlow 2.21](https://img.shields.io/badge/TensorFlow-2.21-orange.svg)](https://www.tensorflow.org/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.35+-red.svg)](https://streamlit.io/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/downloads/) [![TensorFlow 2.21](https://img.shields.io/badge/TensorFlow-2.21-orange.svg)](https://www.tensorflow.org/) [![Streamlit](https://img.shields.io/badge/Streamlit-1.35+-red.svg)](https://streamlit.io/) [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 
 ---
 
@@ -21,6 +18,8 @@
 - [Menjalankan Aplikasi](#menjalankan-aplikasi)
 - [File Model yang Dibutuhkan](#file-model-yang-dibutuhkan)
 - [Interpretibilitas (XAI)](#interpretibilitas-xai)
+- [Augmentasi Data](#augmentasi-data)
+- [Keterbatasan & Catatan Penting](#keterbatasan--catatan-penting)
 - [Referensi Teknis](#referensi-teknis)
 
 ---
@@ -32,6 +31,7 @@ Osteoporosis adalah penyakit degeneratif tulang yang ditandai dengan penurunan k
 **Standar emas** diagnosis osteoporosis menurut WHO adalah pemeriksaan *Dual-energy X-ray Absorptiometry* (DXA) yang menghasilkan nilai *T-score*. Namun, ketersediaan mesin DXA sangat terbatas — tersentralisasi di rumah sakit rujukan tipe A, biayanya mahal, dan membutuhkan radiografer tersertifikasi khusus. Hal ini menyebabkan rendahnya cakupan deteksi dini di fasilitas pelayanan kesehatan primer dan daerah terpencil.
 
 **LUMOS** memanfaatkan modalitas yang jauh lebih mudah diakses:
+
 - **Foto rontgen (X-Ray) konvensional** vertebra lumbal dalam dua proyeksi: **AP (Anteroposterior)** dan **Lateral** — tersedia di hampir seluruh fasilitas kesehatan.
 - **Data klinis rutin** (usia, jenis kelamin, tinggi badan, berat badan, BMI) — diperoleh dari anamnesis standar tanpa alat khusus.
 
@@ -80,7 +80,7 @@ Arsitektur **Cross-Modal Gated Interaction** dirancang untuk mengatasi kelemahan
 ### Studi Ablasi — 4 Varian Model
 
 | Varian | Modalitas | Gating | Deskripsi |
-|--------|-----------|--------|-----------|
+|---|---|---|---|
 | **A** · Clinical Only | Tabular | ❌ | MLP pada 5 fitur klinis (6 setelah OHE) |
 | **B** · Image Only | AP + LAT | ❌ | Dual-stream EfficientNetB0 |
 | **C** · Multimodal No-Gating | AP + LAT + Tab | ❌ | Fusi sederhana (*simple concat*) |
@@ -89,14 +89,23 @@ Arsitektur **Cross-Modal Gated Interaction** dirancang untuk mengatasi kelemahan
 ### Strategi Training — CheXNet-Style 2-Stage Fine-Tuning
 
 | Stage | Epochs | Learning Rate | Backbone |
-|-------|--------|---------------|----------|
+|---|---|---|---|
 | **Stage 1** — Linear Probe | 35 | 1×10⁻³ | Frozen (semua layer dibekukan) |
 | **Stage 2** — Domain Adaptation | 35 | 1×10⁻⁵ (↓100×) | 30 layer teratas di-unfreeze |
 
 - **Batch size**: 16
 - **Loss**: `categorical_crossentropy` dengan *balanced class weights*
 - **Optimizer**: Adam
-- **Callbacks**: Custom `MacroOsteopeniaF1Checkpoint` (0.60×Macro-F1 + 0.40×F1-osteopenia), `EarlyStopping` (patience=7), `ReduceLROnPlateau` (factor=0.3, patience=4)
+- **Callbacks**:
+  - `MacroOsteopeniaF1Checkpoint` (custom) — menyimpan checkpoint terbaik berdasarkan skor gabungan **0,60 × Macro-F1 + 0,40 × F1-osteopenia**, dievaluasi ulang di akhir setiap epoch pada validation set. Ini adalah mekanisme penyimpanan model yang **sebenarnya dipakai** untuk memilih `best_{variant}.keras`.
+  - `EarlyStopping` (monitor=`val_loss`, patience=7, restore_best_weights=True)
+  - `ReduceLROnPlateau` (monitor=`val_loss`, factor=0.3, patience=4, min_lr=1e-7)
+
+> ℹ️ **Catatan implementasi**: terdapat pula fungsi `get_callbacks()` yang menyertakan `ModelCheckpoint` berbasis `val_accuracy` — namun checkpoint final yang benar-benar dipakai untuk evaluasi dan deployment adalah hasil dari `MacroOsteopeniaF1Checkpoint`, bukan dari `get_callbacks()`.
+
+### Strategi Validasi
+
+Evaluasi dilakukan menggunakan **single stratified split 80/15/5** (bukan K-Fold Cross Validation). Konfigurasi `N_FOLDS = 5` tersedia di kode untuk pengembangan lanjutan, namun **belum digunakan** pada eksperimen yang dilaporkan di README ini.
 
 ---
 
@@ -109,10 +118,10 @@ Input .npy → Gaussian Blur → ROI Crop (L1–L4) → CLAHE + Otsu Bone Mask �
 ```
 
 | # | Langkah | Parameter | Fungsi |
-|---|---------|-----------|--------|
+|---|---|---|---|
 | 1 | **Gaussian Filtering** | Kernel (5,5), σ=1.0 | Mereduksi *high-frequency noise* sensor DXA/radiografi |
-| 2 | **ROI Cropping** | AP: top=12%, bottom=98%, left=22%, right=78% | Mengisolasi vertebra lumbal L1–L4 |
-| | | LAT: top=12%, bottom=98%, left=12%, right=85% | |
+| 2 | **ROI Cropping** | AP: top=12%, bottom=**100%**, left=22%, right=78% | Mengisolasi vertebra lumbal L1–L4 |
+| | | LAT: top=12%, bottom=**100%**, left=12%, right=85% | |
 | 3 | **CLAHE Enhancement** | clipLimit=2.5, tileGrid=(8,8) | Meningkatkan kontras struktur trabekular |
 | 4 | **Otsu Bone Masking** | Threshold otomatis + morfologi (kernel 9×9) | Segmentasi tulang vs jaringan lunak |
 | 5 | **Soft Blending** | mask_blend=0.65 | Meredam bayangan organ tanpa menghilangkan konteks |
@@ -120,10 +129,12 @@ Input .npy → Gaussian Blur → ROI Crop (L1–L4) → CLAHE + Otsu Bone Mask �
 | 7 | **Normalisasi** | Skala [0.0, 1.0] | Model mengharapkan input ternormalisasi |
 | 8 | **Stack RGB** | Grayscale → 3 channel | Kompatibilitas dengan EfficientNetB0 pretrained ImageNet |
 
+> ℹ️ EfficientNetB0 memiliki layer `Rescaling` internal yang mengharapkan input skala 0–255 (bukan `preprocess_input` eksternal seperti ResNet50). Karena `preprocess_image()` menghasilkan output skala 0–1 (dipakai bersama untuk EDA/augmentasi), sebuah layer `Rescaling(255.0)` ditambahkan tepat sebelum backbone di dalam arsitektur model.
+
 ### Preprocessing Data Klinis Tabular
 
 | Fitur | Tipe | Transformasi |
-|-------|------|-------------|
+|---|---|---|
 | `age` (usia) | Numerik | StandardScaler |
 | `height` (tinggi badan, m) | Numerik | StandardScaler |
 | `weight` (berat badan, kg) | Numerik | StandardScaler |
@@ -143,15 +154,15 @@ Input .npy → Gaussian Blur → ROI Crop (L1–L4) → CLAHE + Otsu Bone Mask �
 ### Distribusi Kelas
 
 | Kelas | Jumlah | Persentase |
-|-------|--------|------------|
+|---|---|---|
 | Normal | 289 | 36.4% |
 | Osteopenia | 286 | 36.1% |
 | Osteoporosis | 223 | 27.9% |
 
-### Pembagian Data (Stratified Split)
+### Pembagian Data (Stratified Split 80/15/5)
 
 | Set | Jumlah | Normal | Osteopenia | Osteoporosis |
-|-----|--------|--------|------------|--------------|
+|---|---|---|---|---|
 | **Training** (80%) | 634 | 229 (36.1%) | 228 (36.0%) | 177 (27.9%) |
 | **Validation** (15%) | 119 | 43 (36.1%) | 43 (36.1%) | 33 (27.7%) |
 | **Test** (5%) | 40 | 15 (37.5%) | 14 (35.0%) | 11 (27.5%) |
@@ -164,10 +175,10 @@ Seluruh quadruplet data `(AP_image, Lateral_image, tabular_row, label)` dikunci 
 
 ## Hasil Evaluasi
 
-Evaluasi pada *unseen test set* independen (40 sampel):
+Evaluasi pada *unseen test set* independen (40 sampel), menggunakan **single 80/15/5 split**:
 
 | Varian | Accuracy | Macro Precision | Macro Recall | Macro F1 | Macro AUC |
-|--------|----------|-----------------|--------------|----------|-----------|
+|---|---|---|---|---|---|
 | A · Clinical Only | 62.50% | 65.92% | 63.95% | 57.84% | 85.55% |
 | B · Image Only | 22.50% | 12.50% | 26.62% | 15.43% | 52.98% |
 | C · Multimodal No-Gating | 62.50% | 63.29% | 63.29% | 62.49% | 70.96% |
@@ -177,8 +188,8 @@ Evaluasi pada *unseen test set* independen (40 sampel):
 
 - **Model D (Cross-Modal Gating)** unggul di semua metrik — *gating mechanism* berhasil menyeimbangkan kontribusi antar modalitas.
 - Peningkatan F1-Score: **+10.16%** vs Clinical Only, **+5.51%** vs Multimodal No-Gating.
-- Peningkatan AUC: **+15.07%** vs Multimodal No-Gating.
-- Image Only (Model B) sangat rendah secara mandiri (F1 15.43%), tetapi berkontribusi signifikan sebagai fitur komplementer dalam fusi multimodal.
+- Peningkatan AUC: **+15.08%** vs Multimodal No-Gating.
+- **Image Only (Model B) sangat rendah** — Accuracy 22.5% (di bawah baseline tebak-acak untuk 3 kelas seimbang, ~33%), F1 15.43%, AUC 52.98% (mendekati random). Ini mengindikasikan cabang citra secara mandiri belum menghasilkan representasi yang cukup diskriminatif, dan performa tinggi Model D sebagian besar masih ditopang oleh kontribusi data klinis-tabular. **Direkomendasikan investigasi lanjutan** terhadap Model B (kemungkinan model kolaps memprediksi mayoritas kelas tunggal) sebelum diklaim sebagai kontribusi komplementer yang solid.
 
 ---
 
@@ -190,7 +201,7 @@ klasifikasi-multimodal-osteoporosis/
 ├── app.py                              # Aplikasi Streamlit utama (inferensi)
 ├── requirements.txt                    # Dependensi Python
 ├── README.md                           # Dokumentasi proyek (file ini)
-├── lumos-bismillah-final-effnet.ipynb  # Notebook training & evaluasi
+├── lumos-bismillah-final-effnet.ipynb  # Notebook training & evaluasi (EfficientNetB0)
 │
 ├── deploy_artifacts/                   # Artefak deployment
 │   ├── best_D_Multimodal_Gating.keras  # Model terbaik (checkpoint deploy)
@@ -203,10 +214,10 @@ klasifikasi-multimodal-osteoporosis/
 │   └── *.png                           # Visualisasi evaluasi & Grad-CAM
 │
 ├── model_lumas_dual/                   # Model lengkap (semua varian)
-│   ├── best_A_Clinical_Only.keras      # Varian A: Clinical Only
-│   ├── best_B_Image_Only.keras         # Varian B: Image Only
-│   ├── best_C_Multimodal_NoGating.keras # Varian C: Multimodal tanpa gating
-│   ├── best_D_Multimodal_Gating.keras  # Varian D: Multimodal + Gating
+│   ├── best_A_Clinical_Only.keras
+│   ├── best_B_Image_Only.keras
+│   ├── best_C_Multimodal_NoGating.keras
+│   ├── best_D_Multimodal_Gating.keras
 │   └── *.csv, *.png                    # Data evaluasi & visualisasi
 │
 └── .venv/                              # Virtual environment Python 3.12
@@ -246,7 +257,7 @@ pip install -r requirements.txt
 ### Versi Library Terverifikasi
 
 | Library | Versi Minimum | Versi Terverifikasi |
-|---------|---------------|---------------------|
+|---|---|---|
 | Python | 3.10+ | **3.12.13** |
 | TensorFlow | ≥2.15 | **2.21.0** |
 | Keras | (bundled TF) | **3.15.1** |
@@ -286,14 +297,14 @@ Aplikasi akan terbuka di browser pada `http://localhost:8501`.
 Minimal untuk menjalankan aplikasi:
 
 | File | Wajib | Lokasi |
-|------|-------|--------|
-| `best_D_Multimodal_Gating.keras` | ✅ **Ya** | `deploy_artifacts/` atau `model_lumas_dual/` |
-| `tab_preprocessor.pkl` | ✅ **Ya** | `deploy_artifacts/` |
+|---|---|---|
+| `best_D_Multimodal_Gating.keras` | ✅ Ya | `deploy_artifacts/` atau `model_lumas_dual/` |
+| `tab_preprocessor.pkl` | ✅ Ya | `deploy_artifacts/` |
 
 Opsional (untuk perbandingan antar varian di UI):
 
 | File | Lokasi |
-|------|--------|
+|---|---|
 | `best_A_Clinical_Only.keras` | `model_lumas_dual/` |
 | `best_B_Image_Only.keras` | `model_lumas_dual/` |
 | `best_C_Multimodal_NoGating.keras` | `model_lumas_dual/` |
@@ -307,6 +318,7 @@ Opsional (untuk perbandingan antar varian di UI):
 ### Dual-View Grad-CAM
 
 Visualisasi *Gradient-weighted Class Activation Mapping* (Selvaraju et al., 2017) pada layer konvolusi terakhir masing-masing backbone EfficientNetB0:
+
 - Menghasilkan heatmap atensi terpisah untuk proyeksi **AP** dan **Lateral**
 - Overlay colormap JET dengan transparansi α=0.55 di atas citra asli
 - Memverifikasi bahwa model fokus pada korpus vertebra lumbal yang relevan secara anatomis
@@ -316,7 +328,7 @@ Visualisasi *Gradient-weighted Class Activation Mapping* (Selvaraju et al., 2017
 Atribusi kontribusi fitur klinis tabular menggunakan `KernelExplainer`:
 
 | Ranking | Fitur | Keterangan |
-|---------|-------|------------|
+|---|---|---|
 | 1 | `age` | Fitur paling berpengaruh |
 | 2 | `bmi` | Korelasi kuat dengan kepadatan tulang |
 | 3 | `weight` | Berat badan sebagai faktor protektif |
@@ -328,16 +340,27 @@ Atribusi kontribusi fitur klinis tabular menggunakan `KernelExplainer`:
 
 ## Augmentasi Data
 
-Diterapkan **hanya** pada set training:
+> ⚠️ **Status saat ini: DINONAKTIFKAN** (`USE_AUGMENTATION = False` pada konfigurasi notebook). Hasil evaluasi pada bagian [Hasil Evaluasi](#hasil-evaluasi) diperoleh **tanpa** augmentasi diterapkan pada data training. Tabel di bawah menjelaskan konfigurasi augmentasi yang **tersedia** di kode dan dapat diaktifkan untuk eksperimen lanjutan.
+
+Diterapkan **hanya** pada set training, apabila `USE_AUGMENTATION = True`:
 
 | Teknik | Parameter |
-|--------|-----------|
+|---|---|
 | Random Rotation | ±25° |
 | Random Width Shift | ±10% |
 | Random Height Shift | ±10% |
 | Random Shear | ±0.12 |
 | Horizontal Flip | 50% probabilitas |
 | Vertical Flip | ❌ Tidak digunakan |
+
+---
+
+## Keterbatasan & Catatan Penting
+
+- **Model B (Image Only) berkinerja sangat rendah** (Accuracy 22.5%, di bawah baseline tebak-acak). Perlu investigasi lanjutan — kemungkinan model kolaps memprediksi mayoritas kelas tunggal pada konfigurasi arsitektur/hyperparameter saat ini.
+- **Diskrepansi checkpoint reload**: pengujian ulang terhadap model `D_Multimodal_Gating` yang dimuat dari checkpoint tersimpan menghasilkan Test Accuracy 62.50%, berbeda dari 67.50% yang tercatat saat proses training berlangsung. Penyebab pasti belum diinvestigasi secara menyeluruh (kandidat: perbedaan *running statistics* Batch Normalization saat *reload*, atau perbedaan preprocessing antara sesi training dan sesi evaluasi ulang). Pengguna yang memuat ulang model disarankan untuk memvalidasi ulang metrik sebelum mengutip angka performa.
+- **Validasi menggunakan single split**, bukan K-Fold Cross Validation. Dengan ukuran test set yang kecil (40 sampel), estimasi metrik (khususnya F1 per kelas) memiliki varians yang relatif tinggi — satu sampel salah klasifikasi dapat menggeser F1 hingga ±2.5 poin persentase.
+- **Augmentasi data belum diaktifkan** pada eksperimen yang dilaporkan (lihat bagian [Augmentasi Data](#augmentasi-data)).
 
 ---
 
@@ -357,7 +380,5 @@ Proyek ini dikembangkan sebagai bagian dari penelitian skripsi. Silakan hubungi 
 
 ---
 
-<p align="center">
-  <b>LUMOS</b> — Lumbar Spine Osteoporosis Screening System<br>
-  <i>Klasifikasi Multimodal Osteoporosis berbasis Deep Learning</i>
-</p>
+**LUMOS** — Lumbar Spine Osteoporosis Screening System
+*Klasifikasi Multimodal Osteoporosis berbasis Deep Learning*
